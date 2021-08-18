@@ -24,6 +24,7 @@
 #include <time.h>
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 #include <iomanip>
 #include <iostream>
 #include <iterator>
@@ -343,10 +344,12 @@ void CAFMaker::beginRun(art::Run& run) {
   // Heuristic method to determine the detector ID
   const geo::GeometryCore* geom = lar::providerFrom<geo::Geometry>();
 
-  std::string gdml = geom->GDMLFile();
-  gdml = basename(gdml.c_str()); // strip directory part
+  // strip directory part
+  std::string gdml = std::filesystem::path(geom->GDMLFile()).filename();
   std::cout << "CAFMaker: Attempting to deduce detector from GDML file name: '" << gdml
             << "' and configured detector name: '" << geom->DetectorName() << "'. ";
+  // Lowercase filename, in case it contains "SBND" or "Icarus" etc
+  for(unsigned int i = 0; i < gdml.size(); ++i) gdml[i] = std::tolower(gdml[i]);
   // Do we find the string in either of the names?
   const bool hasSBND = ((gdml.find("sbnd") != std::string::npos) ||
                         (geom->DetectorName().find("sbnd") != std::string::npos));
