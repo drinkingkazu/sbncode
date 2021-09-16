@@ -5,6 +5,8 @@ art_make(
         sbncode_OpT0Finder_flashmatch_GeoAlgo
         larcorealg_Geometry
         larcore_Geometry_Geometry_service
+	larsim_PhotonPropagation_PhotonVisibilityService_service
+        larsim_Simulation
         lardataalg_DetectorInfo
         art_Framework_Core
         art_Framework_Services_Registry

@@ -13,8 +13,9 @@ namespace flashmatch{
 #include "flashmatch/Base/FMWKTools/PhotonVisibilityService.h"
 namespace flashmatch{
 
-  DetectorSpecs::DetectorSpecs(std::string filename) {
-
+  DetectorSpecs::DetectorSpecs(std::string filename) 
+    : LoggerFeature("DetectorSpecs")
+  {
     assert(!filename.empty());
     if(filename.find("/") != 0)
       filename = std::string(getenv("FMATCH_DATADIR")) + "/" + filename;
@@ -22,16 +23,41 @@ namespace flashmatch{
     auto cfg = CreatePSetFromFile(filename,"cfg");
     auto const& p = cfg.get<::flashmatch::Config_t>("DetectorSpecs");
 
-    auto max_pt = p.get<std::vector<double> >("MaxPosition");
-    auto min_pt = p.get<std::vector<double> >("MinPosition");
+    auto max_pt = p.get<std::vector<double> >("ActiveVolumeMax");
+    auto min_pt = p.get<std::vector<double> >("ActiveVolumeMin");
+    auto photon_max_pt = p.get<std::vector<double> >("PhotonLibraryVolumeMax");
+    auto photon_min_pt = p.get<std::vector<double> >("PhotonLibraryVolumeMin");
+    auto nvoxels = p.get<std::vector<int> >("PhotonLibraryNvoxels");
+    auto nopdetchannels = p.get<int>("PhotonLibraryNOpDetChannels");
     assert(max_pt.size() == 3);
     assert(min_pt.size() == 3);
     assert(max_pt[0] >= min_pt[0] &&
-	   max_pt[1] >= min_pt[1] &&
-	   max_pt[2] >= min_pt[2]);
+     max_pt[1] >= min_pt[1] &&
+     max_pt[2] >= min_pt[2]);
     _bbox = geoalgo::AABox(min_pt[0],min_pt[1],min_pt[2],max_pt[0],max_pt[1],max_pt[2]);
     //std::cout<<_bbox.Min()[0]<<" "<<_bbox.Min()[1]<<" "<<_bbox.Min()[2]<<std::endl;
     //std::cout<<_bbox.Max()[0]<<" "<<_bbox.Max()[1]<<" "<<_bbox.Max()[2]<<std::endl;
+
+    assert(photon_max_pt.size() == 3);
+    assert(photon_min_pt.size() == 3);
+    assert(photon_max_pt[0] >= photon_min_pt[0] &&
+           photon_max_pt[1] >= photon_min_pt[1] &&
+           photon_max_pt[2] >= photon_min_pt[2]);
+    _photon_bbox = geoalgo::AABox(photon_min_pt[0], photon_min_pt[1], photon_min_pt[2], photon_max_pt[0], photon_max_pt[1], photon_max_pt[2]);
+
+    phot::PhotonVisibilityService& photon_library = phot::PhotonVisibilityService::GetME();
+    photon_library.LoadLibrary();
+    photon_library.SetMaxX(photon_max_pt[0]);
+    photon_library.SetMaxY(photon_max_pt[1]);
+    photon_library.SetMaxZ(photon_max_pt[2]);
+    photon_library.SetMinX(photon_min_pt[0]);
+    photon_library.SetMinY(photon_min_pt[1]);
+    photon_library.SetMinZ(photon_min_pt[2]);
+    photon_library.SetNvoxelsX(nvoxels[0]);
+    photon_library.SetNvoxelsY(nvoxels[1]);
+    photon_library.SetNvoxelsZ(nvoxels[2]);
+    photon_library.SetNOpDetChannels(nopdetchannels);
+
     size_t ch=0;
     _pmt_v.clear();
     while(1) {
@@ -44,8 +70,8 @@ namespace flashmatch{
     }
 
     _drift_velocity = p.get<double>("DriftVelocity");
-
-    _voxel_def = phot::PhotonVisibilityService::GetME().GetVoxelDef();
+    _light_yield = p.get<double>("LightYield");
+    _MIPdEdx = p.get<double>("MIPdEdx");
 
   }
 
@@ -62,11 +88,28 @@ namespace flashmatch{
   float DetectorSpecs::GetVisibility(double x, double y, double z, unsigned int opch) const
   { return phot::PhotonVisibilityService::GetME().GetVisibility(x,y,z,opch); }
 
-  const std::vector<std::vector<float > >& DetectorSpecs::GetPhotonLibraryData() const
-  { return phot::PhotonVisibilityService::GetME().GetLibraryData(); }
+  float DetectorSpecs::GetVisibilityReflected(double x, double y, double z, unsigned int opch) const
+  { return -1; }
+
+  float DetectorSpecs::GetVisibility(int vox_id, unsigned int opch) const
+  { return phot::PhotonVisibilityService::GetME().GetLibraryEntry(vox_id,opch);}
+
+  float DetectorSpecs::GetVisibilityReflected(int vox_id, unsigned int opch) const
+  { return -1; }
+
+  const std::vector<float>& DetectorSpecs::GetLibraryEntries(int vox_id) const
+  { return phot::PhotonVisibilityService::GetME().GetLibraryData()[vox_id]; }
+
+  const sim::PhotonVoxelDef& DetectorSpecs::GetVoxelDef() const
+  {
+    return phot::PhotonVisibilityService::GetME().GetVoxelDef();
+  }
+
+
 }
 
 #else
+
 namespace flashmatch{
   DetectorSpecs::DetectorSpecs(std::string filename){
     ::art::ServiceHandle<geo::Geometry> const geo;
@@ -122,21 +165,35 @@ namespace flashmatch{
   }
 
   float DetectorSpecs::GetVisibility(double x, double y, double z, unsigned int opch) const {
-    // double xyz[3];
-    // xyz[0] = x;
-    // xyz[1] = y;
-    // xyz[2] = z;
-    // return pvs.GetVisibility(xyz, opch, false);
-    return -1;
+    art::ServiceHandle<phot::PhotonVisibilityService const> pvs;
+    geo::Point_t pt(x,y,z);
+    return pvs->GetVisibility(pt,opch,false);
   }
 
   float DetectorSpecs::GetVisibilityReflected(double x, double y, double z, unsigned int opch) const {
-    // double xyz[3];
-    // xyz[0] = x;
-    // xyz[1] = y;
-    // xyz[2] = z;
-    // return pvs.GetVisibility(xyz, opch, true);
-    return -1;
+    art::ServiceHandle<phot::PhotonVisibilityService const> pvs;
+    geo::Point_t pt(x,y,z);
+    return pvs->GetVisibility(pt,opch,true);
+  }
+
+  float DetectorSpecs::GetVisibility(int vox_id, unsigned int opch) const {
+    art::ServiceHandle<phot::PhotonVisibilityService const> pvs;
+    return pvs->GetLibraryEntry(vox_id,opch,false);
+  }
+
+  float DetectorSpecs::GetVisibilityReflected(int vox_id, unsigned int opch) const {
+    art::ServiceHandle<phot::PhotonVisibilityService const> pvs;
+    return pvs->GetLibraryEntry(vox_id,opch,true);
+  }
+
+  const sim::PhotonVoxelDef& DetectorSpecs::GetVoxelDef() const {
+    art::ServiceHandle<phot::PhotonVisibilityService const> pvs;
+    return pvs->GetVoxelDef();
+  }
+
+  phot::IPhotonLibrary::Counts_t DetectorSpecs::GetLibraryEntries(int vox_id, bool reflWanted) const {
+    art::ServiceHandle<phot::PhotonVisibilityService const> pvs;
+    return pvs->GetLibraryEntries(vox_id,reflWanted);
   }
 
   const geoalgo::AABox& DetectorSpecs::ActiveVolume(int tpc, int cryo) const {
