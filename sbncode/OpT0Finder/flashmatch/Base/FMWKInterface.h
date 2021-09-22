@@ -10,8 +10,10 @@
 
 #if USING_LARSOFT == 0
 #include "FMWKTools/ConfigManager.h"
-#include "flashmatch/GeoAlgo/GeoAABox.h"
 #include "FMWKTools/PhotonVoxels.h"
+#include "flashmatch/GeoAlgo/GeoAABox.h"
+#include "flashmatch/Base/FMWKTools/PSetUtils.h"
+#include "flashmatch/Base/FMWKTools/PhotonVisibilityService.h"
 namespace flashmatch {
   /// Configuration object
   using Config_t = flashmatch::PSet;
@@ -36,14 +38,25 @@ namespace flashmatch {
   class DetectorSpecs : public LoggerFeature {
 
   public:
-    DetectorSpecs(std::string filename="specs.cfg");
+    DetectorSpecs(const Config_t& cfg);
     ~DetectorSpecs(){}
 
-    inline static DetectorSpecs& GetME(std::string filename="detector_specs.cfg")
+    inline static DetectorSpecs& GetME()
     {
-      if(!_me) _me = new DetectorSpecs(filename);
+      if(_me) return *_me;
+      std::cerr << "DetectorSpecs::GetME() without an argument must be called only after it is called with Config_t argument!" 
+		<< std::endl << std::endl << std::flush;
+      throw OpT0FinderException();
+    }
+
+    inline static DetectorSpecs& GetME(const Config_t& cfg) 
+    {
+      if(!_me) _me = new DetectorSpecs(cfg);
       return *_me;
     }
+
+    /// Info dump
+    void DumpInfo() const;
 
     /// PMT XYZ position filler
     inline const geoalgo::Point_t& PMTPosition(size_t opch) { return _pmt_v.at(opch); }
@@ -82,8 +95,24 @@ namespace flashmatch {
     #if USING_LARSOFT == 0
     /// Photon Library data access
     const std::vector<float>& GetLibraryEntries(int vox_id) const;
+    /// For non-larsoft option, configure via filename
+    inline static DetectorSpecs& GetME(std::string filename)
+    {
+      assert(!filename.empty());
+      if(filename.find("/") != 0)
+        filename = std::string(getenv("FMATCH_DATADIR")) + "/" + filename;
+
+      auto cfg = CreatePSetFromFile(filename,"cfg");
+      auto const& p = cfg.get<::flashmatch::Config_t>("DetectorSpecs");
+
+      if(!_me) _me = new DetectorSpecs(p);
+      return *_me;
+    }
     #else
+    /// Photon Library data access
     phot::IPhotonLibrary::Counts_t GetLibraryEntries(int vox_id, bool reflWanted=false) const;
+    /// Set which cryostats to use
+    void EnableCryostats(std::vector<size_t> cryo_id_v);
     #endif
     
     /// Voxel definition
@@ -97,6 +126,7 @@ namespace flashmatch {
     double _drift_velocity;
     double _light_yield;
     double _MIPdEdx;
+    std::vector<int> _cryo_id_v;
   };
 
 }

@@ -134,9 +134,10 @@ namespace flashmatch {
     //ID_t ROOT_idx;///< index in original root file
     double time;  ///< assumed time w.r.t. trigger for reconstruction
     double time_true; ///< Time from MCTrack information
+    double min_x_true; ///< True x-minimum value
 
     /// Default constructor
-    QCluster_t() : idx(kINVALID_ID), time(0), time_true(kINVALID_DOUBLE) {}
+    QCluster_t() : idx(kINVALID_ID), time(kINVALID_DOUBLE), time_true(kINVALID_DOUBLE), min_x_true(kINVALID_DOUBLE) {}
     ~QCluster_t() {}
 
     /// returns the sum of "q" from QPoint_t
